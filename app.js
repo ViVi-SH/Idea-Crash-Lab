@@ -2,7 +2,11 @@ const $ = selector => document.querySelector(selector);
 const heroLead = document.querySelector('.hero-copy > p');
 if (heroLead) heroLead.textContent = '好创意不怕被质疑。让不同的评审从不同立场审视你的想法，在观点碰撞中发现盲点，让每一次产品决策都更有依据。';
 const stages = ['entry','guide','summary','confirm','review','report'];
-const stepStages = ['entry','guide','summary','review','report'];
+const stepStages = ['entry','guide','summary','report'];
+const reviewStep = document.querySelector('.step[data-stage="review"]');
+if (reviewStep) reviewStep.remove();
+const reportStep = document.querySelector('.step[data-stage="report"]');
+if (reportStep) { reportStep.querySelector('i').textContent = '4'; reportStep.childNodes[reportStep.childNodes.length - 1].textContent = '压力报告'; }
 const store = {
   conversationId: sessionStorage.getItem('icl_conversation') || '',
   userId: localStorage.getItem('icl_user') || `web-${crypto.randomUUID()}`,
@@ -15,7 +19,7 @@ localStorage.setItem('icl_user', store.userId);
 
 function show(stage) {
   stages.forEach(name => $(`#screen-${name}`)?.classList.toggle('active', name === stage));
-  const visibleStep = stage === 'confirm' ? 'summary' : stage;
+  const visibleStep = stage === 'confirm' ? 'summary' : stage === 'review' ? 'report' : stage;
   const current = stepStages.indexOf(visibleStep);
   document.querySelectorAll('.step').forEach((item,index) => {
     item.classList.toggle('active', index === current);
@@ -199,11 +203,14 @@ async function runReview() {
   ['#rolePm','#roleUser','#roleCritic'].forEach((id,i)=>{$(id).classList.add('loading');$(id).textContent=['正在检查产品逻辑与 MVP 边界…','正在模拟使用场景与放弃原因…','正在寻找关键假设与失败路径…'][i]});
   const requirement=confirmedRequirement();
   const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
-  try { store.report=await callDify(prompt,{fresh:true}); sessionStorage.setItem('icl_report',store.report); displayRoles(store.report); }
+  try {
+    store.report=await callDify(prompt,{fresh:true}); sessionStorage.setItem('icl_report',store.report);
+    if(displayRoles(store.report)) { setMarkdown($('#reportText'),store.report); show('report'); }
+  }
   catch(error) {
     $('#reviewStatus').textContent=`评审暂时中断：${error.message}`;
     let retry=$('#retryReview');
-    if(!retry){retry=document.createElement('button');retry.id='retryReview';retry.className='btn';retry.textContent='重新尝试评审';retry.addEventListener('click',runReview);$('#generateReport').before(retry);}
+    if(!retry){retry=document.createElement('button');retry.id='retryReview';retry.className='btn';retry.textContent='重新尝试生成';retry.addEventListener('click',runReview);$('#retryArea').append(retry);}
     retry.classList.remove('hidden');
   }
 }
@@ -227,4 +234,4 @@ $('#generateReport').addEventListener('click',()=>{setMarkdown($('#reportText'),
 $('#rerunReview').addEventListener('click',runReview);
 $('#downloadReport').addEventListener('click',async event=>{event.target.disabled=true;event.target.textContent='正在生成 Word…';try{const response=await fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Idea Crash Lab 产品创意压力测试报告',report:store.report,requirement:confirmedRequirement()})});if(!response.ok)throw new Error((await response.json()).error||'生成失败');const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`Idea-Crash-Lab-压力测试报告-${new Date().toISOString().slice(0,10)}.docx`;a.click();URL.revokeObjectURL(url)}catch(error){alert(error.message)}finally{event.target.disabled=false;event.target.textContent='保存 / 打印报告'}});
 $('#restartGuide').addEventListener('click',resetAll);$('#resetTop').addEventListener('click',resetAll);$('#fullscreen').addEventListener('click',()=>document.fullscreenElement?document.exitFullscreen():$('#appShell').requestFullscreen());
-if(store.report){displayRoles(store.report);show('review')}else if(store.summary){setMarkdown($('#summaryText'),store.summary);populateConfirm(store.summary);show('summary')}
+if(store.report){setMarkdown($('#reportText'),store.report);show('report')}else if(store.summary){setMarkdown($('#summaryText'),store.summary);populateConfirm(store.summary);show('summary')}
