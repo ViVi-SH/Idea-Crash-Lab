@@ -195,7 +195,7 @@ function displayRoles(report) {
 }
 
 async function runReview() {
-  show('review'); $('#generateReport').classList.add('hidden'); $('#retryReview')?.classList.add('hidden'); $('#reviewStatus').textContent='三角色评审与交叉讨论正在进行，请稍候。';
+  show('review'); $('#generateReport').classList.add('hidden'); $('#retryReview')?.classList.add('hidden'); $('#reviewStatus').textContent='三角色评审与交叉讨论正在进行，完整流程可能需要 1～3 分钟，请不要关闭页面。';
   ['#rolePm','#roleUser','#roleCritic'].forEach((id,i)=>{$(id).classList.add('loading');$(id).textContent=['正在检查产品逻辑与 MVP 边界…','正在模拟使用场景与放弃原因…','正在寻找关键假设与失败路径…'][i]});
   const requirement=confirmedRequirement();
   const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
