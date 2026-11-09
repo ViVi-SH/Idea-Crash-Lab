@@ -23,7 +23,11 @@ export default async function handler(req, res) {
     });
     const data = await upstream.json().catch(() => ({}));
     if (!upstream.ok) return res.status(upstream.status).json({error: data.message || data.code || 'Dify 调用失败'});
-    return res.status(200).json({answer: data.answer, conversation_id: data.conversation_id, message_id: data.message_id});
+    const answer = String(data.answer || '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<!--[\s\S]*?dify-deepseek-reasoning[\s\S]*?-->/gi, '')
+      .trim();
+    return res.status(200).json({answer, conversation_id: data.conversation_id, message_id: data.message_id});
   } catch {
     return res.status(502).json({error: '无法连接 Dify 服务'});
   }
