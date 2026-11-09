@@ -1,14 +1,2 @@
-# Idea Crash Lab 网站
-
-自定义前端通过服务端代理调用 Dify，API Key 不会进入浏览器。
-
-## 部署到 Vercel
-
-1. 将 `site` 目录上传到 GitHub 仓库。
-2. 在 Vercel 导入仓库，并将 Root Directory 设为 `site`。
-3. 在项目 Settings → Environment Variables 添加：
-   - `DIFY_API_URL`：`https://api.dify.ai/v1`
-   - `DIFY_API_KEY`：在 Dify 应用的“访问 API”页面创建的应用 API Key。
-4. 重新部署。
-
-不要把真实 API Key 写入 `.env.example`、网页源代码或 GitHub。
+# Idea-Crash-Lab
+一款面向初级产品经理和产品实习生的 AI 需求评审工具。用户提交收集到的产品需求后，系统通过智能需求理解、多角色评审和观点碰撞，从需求完整性、业务逻辑、用户体验和方案可行性等角度发现潜在问题，并给出具体的优化建议。
