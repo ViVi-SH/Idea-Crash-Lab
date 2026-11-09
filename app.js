@@ -30,6 +30,56 @@ function clean(text='') {
     .trim();
 }
 
+function escapeHtml(value='') {
+  return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function inlineMarkdown(value='') {
+  return escapeHtml(value)
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/__([^_]+)__/g,'<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g,'<em>$1</em>');
+}
+
+function renderMarkdown(source='') {
+  const lines=clean(source).replace(/\r/g,'').split('\n');
+  const html=[];
+  let i=0;
+  while(i<lines.length) {
+    const line=lines[i].trim();
+    if(!line){i++;continue;}
+    if(line.includes('|') && i+1<lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i+1])) {
+      const rows=[];
+      const cells=value=>value.trim().replace(/^\||\|$/g,'').split('|').map(cell=>cell.trim());
+      const headers=cells(lines[i]); i+=2;
+      while(i<lines.length && lines[i].includes('|') && lines[i].trim()) { rows.push(cells(lines[i])); i++; }
+      html.push(`<div class="md-table-wrap"><table><thead><tr>${headers.map(cell=>`<th>${inlineMarkdown(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${headers.map((_,index)=>`<td>${inlineMarkdown(row[index]||'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+      continue;
+    }
+    const heading=line.match(/^(#{1,4})\s+(.+)$/);
+    if(heading){const level=Math.min(heading[1].length+1,4);html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);i++;continue;}
+    if(/^---+$/.test(line)){html.push('<hr>');i++;continue;}
+    if(/^>\s?/.test(line)){html.push(`<blockquote>${inlineMarkdown(line.replace(/^>\s?/,''))}</blockquote>`);i++;continue;}
+    if(/^[-*•]\s+/.test(line)) {
+      const items=[]; while(i<lines.length && /^\s*[-*•]\s+/.test(lines[i])) {items.push(lines[i].replace(/^\s*[-*•]\s+/,''));i++;}
+      html.push(`<ul>${items.map(item=>`<li>${inlineMarkdown(item)}</li>`).join('')}</ul>`);continue;
+    }
+    if(/^\d+[.、]\s+/.test(line)) {
+      const items=[]; while(i<lines.length && /^\s*\d+[.、]\s+/.test(lines[i])) {items.push(lines[i].replace(/^\s*\d+[.、]\s+/,''));i++;}
+      html.push(`<ol>${items.map(item=>`<li>${inlineMarkdown(item)}</li>`).join('')}</ol>`);continue;
+    }
+    const paragraph=[line]; i++;
+    while(i<lines.length && lines[i].trim() && !/^(#{1,4})\s|^[-*•]\s+|^\d+[.、]\s+|^>\s?|^---+$/.test(lines[i].trim()) && !(lines[i].includes('|') && i+1<lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i+1]))) {paragraph.push(lines[i].trim());i++;}
+    html.push(`<p>${paragraph.map(inlineMarkdown).join('<br>')}</p>`);
+  }
+  return `<div class="md">${html.join('')}</div>`;
+}
+
+function setMarkdown(element,text) {
+  element.innerHTML=renderMarkdown(text);
+}
+
 async function callDify(query) {
   const response = await fetch('/api/chat', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -47,7 +97,9 @@ async function callDify(query) {
 function addMessage(role,text,loading=false) {
   const row=document.createElement('div'); row.className=`msg ${role}`;
   const bubble=document.createElement('div'); bubble.className='bubble';
-  bubble.textContent=loading?'正在分析你的创意…':text;
+  if(loading) bubble.textContent='正在分析你的创意…';
+  else if(role==='assistant') {bubble.classList.add('md');setMarkdown(bubble,text);}
+  else bubble.textContent=text;
   if(loading) bubble.classList.add('loading');
   row.append(bubble); $('#messages').append(row); $('#messages').scrollTop=$('#messages').scrollHeight;
   return bubble;
@@ -75,7 +127,7 @@ function inferFacts(text) {
 async function sendGuide(query) {
   show('guide'); addMessage('user',query); const bubble=addMessage('assistant','',true); setBusy(true);
   try {
-    const answer=await callDify(query); bubble.classList.remove('loading'); bubble.textContent=answer;
+    const answer=await callDify(query); bubble.classList.remove('loading'); bubble.classList.add('md'); setMarkdown(bubble,answer);
     store.rounds=Math.min(store.rounds+1,3); sessionStorage.setItem('icl_rounds',store.rounds); $('#rounds').textContent=`追问 ${store.rounds} / 3`;
     inferFacts(answer);
     if(store.rounds>=3 || /信息完整|足以进入|可以进入.*评审|结构化需求摘要/.test(answer)) $('#summarizeNow').classList.add('btn-dark');
@@ -87,10 +139,13 @@ function extractSection(text, patterns) {
   const lines=text.split('\n').map(x=>x.trim()).filter(Boolean);
   const index=lines.findIndex(line=>patterns.some(pattern=>pattern.test(line)));
   if(index<0) return '';
-  const collected=[];
+  const cleaned=lines[index].replace(/^#{1,4}\s*/,'').replace(/\*\*/g,'');
+  const inline=cleaned.match(/^[^：:]{1,18}[：:]\s*(.+)$/)?.[1]?.trim();
+  const collected=inline?[inline]:[];
   for(let i=index+1;i<lines.length;i++) {
-    if(/^#{1,4}\s|^\d+[.、]\s*|^(目标用户|用户痛点|核心需求|产品初步方案|待验证假设|下一步建议)[:：]?$/.test(lines[i])) break;
-    collected.push(lines[i].replace(/^[-*•]\s*/,''));
+    const next=lines[i].replace(/\*\*/g,'');
+    if(/^#{1,4}\s|^\d+[.、]\s*|^(产品定位|目标用户|用户痛点|核心问题|使用场景|核心价值|核心需求|产品初步方案|初步功能|功能方向|待验证假设|尚未明确|下一步建议)[:：]/.test(next)) break;
+    collected.push(next.replace(/^[-*•]\s*/,''));
     if(collected.join('\n').length>500) break;
   }
   return collected.join('\n');
@@ -107,8 +162,8 @@ function populateConfirm(summary) {
 async function makeSummary() {
   show('summary'); $('#summaryText').textContent='正在生成结构化需求摘要…';
   try {
-    const answer=await callDify('请停止追问，并根据当前完整对话生成结构化需求摘要。必须清晰列出：目标用户、用户痛点、核心需求、产品初步方案、待验证假设（每行一条）和需求摘要。不要开始评审。');
-    store.summary=answer; sessionStorage.setItem('icl_summary',answer); $('#summaryText').textContent=answer; populateConfirm(answer);
+    const answer=await callDify('【模式：需求摘要】现在结束提问。请只根据当前完整对话整理结构化需求摘要，必须清晰列出：产品定位、目标用户、用户痛点、使用场景、核心价值、核心需求、产品初步方案、待验证假设（每行一条）和下一步建议。只输出需求摘要，不执行任何后续分析，也不要输出风险报告。');
+    store.summary=answer; sessionStorage.setItem('icl_summary',answer); setMarkdown($('#summaryText'),answer); populateConfirm(answer);
   } catch(error) { $('#summaryText').textContent=`摘要生成失败：${error.message}`; }
 }
 
@@ -127,18 +182,23 @@ function displayRoles(report) {
   const pm=roleExcerpt(report,'产品经理',['模拟用户','真实用户','反方评审','观点碰撞','核心争议']);
   const user=roleExcerpt(report,'模拟用户',['真实用户','反方评审','观点碰撞','核心争议']) || roleExcerpt(report,'真实用户',['反方评审','观点碰撞','核心争议']);
   const critic=roleExcerpt(report,'反方评审',['观点碰撞','核心争议','潜在问题','风险评估']);
-  $('#rolePm').classList.remove('loading'); $('#rolePm').textContent=pm || '产品经理评审已完成，详细结论将在完整报告中呈现。';
-  $('#roleUser').classList.remove('loading'); $('#roleUser').textContent=user || '模拟用户评审已完成，详细结论将在完整报告中呈现。';
-  $('#roleCritic').classList.remove('loading'); $('#roleCritic').textContent=critic || '反方评审已完成，详细结论将在完整报告中呈现。';
-  $('#reviewStatus').textContent='三角色评审与交叉讨论已完成，可以生成压力测试报告了。';
-  $('#generateReport').classList.remove('hidden');
+  const invalid=value=>!value || value.length<80 || /未收到|未提供|材料缺失|无具体产品|评审材料.*未提供/.test(value);
+  $('#rolePm').classList.remove('loading'); setMarkdown($('#rolePm'),pm || '未能从结果中识别产品经理的独立评审。');
+  $('#roleUser').classList.remove('loading'); setMarkdown($('#roleUser'),user || '未能从结果中识别模拟用户的独立评审。');
+  $('#roleCritic').classList.remove('loading'); setMarkdown($('#roleCritic'),critic || '未能从结果中识别反方评审官的独立评审。');
+  if([pm,user,critic].some(invalid)) {
+    $('#reviewStatus').textContent='检测到角色评审未正确读取已确认需求。请检查 Dify 三个角色节点的用户消息是否引用了 sys.query；本次结果不会生成报告。';
+    $('#generateReport').classList.add('hidden');
+    return false;
+  }
+  $('#reviewStatus').textContent='三角色评审与交叉讨论已完成，可以生成压力测试报告了。'; $('#generateReport').classList.remove('hidden'); return true;
 }
 
 async function runReview() {
   show('review'); $('#generateReport').classList.add('hidden'); $('#reviewStatus').textContent='三角色评审与交叉讨论正在进行，请稍候。';
   ['#rolePm','#roleUser','#roleCritic'].forEach((id,i)=>{$(id).classList.add('loading');$(id).textContent=['正在检查产品逻辑与 MVP 边界…','正在模拟使用场景与放弃原因…','正在寻找关键假设与失败路径…'][i]});
   const requirement=confirmedRequirement();
-  const prompt=`用户已确认以下产品需求，这是本次评审唯一有效的评审材料：\n\n${requirement}\n\n请立即运行产品经理、模拟用户、反方评审官的独立评审与交叉讨论，并生成完整压力测试报告。三个角色不得声称未收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
+  const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
   try { store.report=await callDify(prompt); sessionStorage.setItem('icl_report',store.report); displayRoles(store.report); }
   catch(error) { $('#reviewStatus').textContent=`评审失败：${error.message}`; }
 }
@@ -158,8 +218,8 @@ $('#backToGuide').addEventListener('click',()=>show('guide'));
 $('#enterConfirm').addEventListener('click',()=>{populateConfirm(store.summary);show('confirm')});
 $('#editGuide').addEventListener('click',()=>show('guide'));
 $('#startReview').addEventListener('click',runReview);
-$('#generateReport').addEventListener('click',()=>{$('#reportText').textContent=store.report;show('report')});
+$('#generateReport').addEventListener('click',()=>{setMarkdown($('#reportText'),store.report);show('report')});
 $('#rerunReview').addEventListener('click',runReview);
 $('#downloadReport').addEventListener('click',async event=>{event.target.disabled=true;event.target.textContent='正在生成 Word…';try{const response=await fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Idea Crash Lab 产品创意压力测试报告',report:store.report,requirement:confirmedRequirement()})});if(!response.ok)throw new Error((await response.json()).error||'生成失败');const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`Idea-Crash-Lab-压力测试报告-${new Date().toISOString().slice(0,10)}.docx`;a.click();URL.revokeObjectURL(url)}catch(error){alert(error.message)}finally{event.target.disabled=false;event.target.textContent='保存 / 打印报告'}});
 $('#restartGuide').addEventListener('click',resetAll);$('#resetTop').addEventListener('click',resetAll);$('#fullscreen').addEventListener('click',()=>document.fullscreenElement?document.exitFullscreen():$('#appShell').requestFullscreen());
-if(store.report){displayRoles(store.report);show('review')}else if(store.summary){$('#summaryText').textContent=store.summary;populateConfirm(store.summary);show('summary')}
+if(store.report){displayRoles(store.report);show('review')}else if(store.summary){setMarkdown($('#summaryText'),store.summary);populateConfirm(store.summary);show('summary')}
