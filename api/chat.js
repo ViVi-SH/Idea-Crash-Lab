@@ -23,6 +23,7 @@ async function readDifyStream(upstream) {
   let answer = '';
   let conversationId = '';
   let messageId = '';
+  let completed = false;
 
   const consume = line => {
     if (!line.startsWith('data:')) return;
@@ -38,6 +39,7 @@ async function readDifyStream(upstream) {
       const outputs = event.data?.outputs || {};
       answer = String(outputs.answer || outputs.text || outputs.output || '');
     }
+    if (event.event === 'message_end' || event.event === 'workflow_finished') completed = true;
     if (event.event === 'error') throw new Error(extractError(event, 'Dify 流式执行失败'));
   };
 
@@ -47,7 +49,10 @@ async function readDifyStream(upstream) {
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
     for (const line of lines) consume(line);
-    if (done) break;
+    if (done || completed) {
+      if (completed) await reader.cancel().catch(() => {});
+      break;
+    }
   }
   if (buffer.trim()) consume(buffer.trim());
   return {answer, conversation_id: conversationId, message_id: messageId};

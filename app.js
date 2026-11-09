@@ -204,8 +204,11 @@ async function runReview() {
   const requirement=confirmedRequirement();
   const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
   try {
-    store.report=await callDify(prompt,{fresh:true}); sessionStorage.setItem('icl_report',store.report);
-    if(displayRoles(store.report)) { setMarkdown($('#reportText'),store.report); show('report'); }
+    store.report=await callDify(prompt,{fresh:true});
+    if(!store.report || store.report.trim().length < 100) throw new Error('Dify 已完成运行，但返回的报告内容为空或过短');
+    sessionStorage.setItem('icl_report',store.report);
+    setMarkdown($('#reportText'),store.report);
+    show('report');
   }
   catch(error) {
     $('#reviewStatus').textContent=`评审暂时中断：${error.message}`;
