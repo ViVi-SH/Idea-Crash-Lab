@@ -80,10 +80,10 @@ function setMarkdown(element,text) {
   element.innerHTML=renderMarkdown(text);
 }
 
-async function callDify(query) {
+async function callDify(query, {fresh = false} = {}) {
   const response = await fetch('/api/chat', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({query,conversation_id:store.conversationId,user:store.userId})
+    body:JSON.stringify({query,conversation_id:fresh ? '' : store.conversationId,user:store.userId})
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || '请求失败');
@@ -199,7 +199,7 @@ async function runReview() {
   ['#rolePm','#roleUser','#roleCritic'].forEach((id,i)=>{$(id).classList.add('loading');$(id).textContent=['正在检查产品逻辑与 MVP 边界…','正在模拟使用场景与放弃原因…','正在寻找关键假设与失败路径…'][i]});
   const requirement=confirmedRequirement();
   const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
-  try { store.report=await callDify(prompt); sessionStorage.setItem('icl_report',store.report); displayRoles(store.report); }
+  try { store.report=await callDify(prompt,{fresh:true}); sessionStorage.setItem('icl_report',store.report); displayRoles(store.report); }
   catch(error) {
     $('#reviewStatus').textContent=`评审暂时中断：${error.message}`;
     let retry=$('#retryReview');

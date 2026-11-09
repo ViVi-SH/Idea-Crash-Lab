@@ -3,7 +3,15 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 function publicError(message = '') {
   if (TRANSIENT_ERROR.test(message)) return '模型服务的连接在生成过程中临时中断，请重新尝试本次操作。';
   if (/quota|balance|insufficient/i.test(message)) return '模型服务额度不足，请检查 Dify 中的模型账户。';
+  const requestId = message.match(/req_id[:：]\s*([\w-]+)/i)?.[1];
+  const errorType = message.match(/(?:error_type|type)["']?\s*[:=]\s*["']?([\w-]+)/i)?.[1];
+  if (requestId || errorType) return `Dify 工作流执行失败${errorType ? `（${errorType}）` : ''}${requestId ? `，请求编号：${requestId}` : ''}。请在 Dify 日志中定位该运行记录。`;
   return message && message.length < 240 ? message : 'Dify 工作流执行失败，请在 Dify 日志中查看对应运行记录。';
+}
+
+function extractError(data, fallback = '') {
+  if (typeof data === 'string') return data;
+  return String(data?.message || data?.error?.message || data?.error || data?.detail || data?.code || fallback || 'Dify 调用失败');
 }
 
 export default async function handler(req, res) {
@@ -33,7 +41,8 @@ export default async function handler(req, res) {
     });
     const data = await upstream.json().catch(() => ({}));
     if (!upstream.ok) {
-      lastMessage = String(data.message || data.code || 'Dify 调用失败');
+      lastMessage = extractError(data, `Dify 调用失败（HTTP ${upstream.status}）`);
+      console.error('Dify upstream error', {status: upstream.status, message: lastMessage.slice(0, 1200)});
       if (attempt === 0 && TRANSIENT_ERROR.test(lastMessage)) { await wait(1400); continue; }
       return res.status(TRANSIENT_ERROR.test(lastMessage) ? 503 : upstream.status).json({error: publicError(lastMessage), retryable: TRANSIENT_ERROR.test(lastMessage)});
     }
