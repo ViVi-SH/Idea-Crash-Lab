@@ -13,6 +13,7 @@ const store = {
   rounds: Number(sessionStorage.getItem('icl_rounds') || 0),
   initialIdea: sessionStorage.getItem('icl_idea') || '',
   summary: sessionStorage.getItem('icl_summary') || '',
+  confirmedRequirement: sessionStorage.getItem('icl_confirmed_requirement') || '',
   report: sessionStorage.getItem('icl_report') || ''
 };
 localStorage.setItem('icl_user', store.userId);
@@ -172,7 +173,15 @@ async function makeSummary() {
 }
 
 function confirmedRequirement() {
-  return `目标用户：\n${$('#confirmUsers').value.trim()}\n\n用户痛点：\n${$('#confirmProblem').value.trim()}\n\n核心需求：\n${$('#confirmNeed').value.trim()}\n\n产品初步方案：\n${$('#confirmSolution').value.trim()}\n\n待验证假设：\n${$('#confirmAssumptions').value.trim()}`;
+  const fields = [
+    ['目标用户', $('#confirmUsers').value.trim()],
+    ['用户痛点', $('#confirmProblem').value.trim()],
+    ['核心需求', $('#confirmNeed').value.trim()],
+    ['产品初步方案', $('#confirmSolution').value.trim()],
+    ['待验证假设', $('#confirmAssumptions').value.trim()]
+  ].filter(([, value]) => value);
+  if (fields.length) return fields.map(([label, value]) => `${label}：\n${value}`).join('\n\n');
+  return store.confirmedRequirement || store.summary || store.initialIdea;
 }
 
 function roleExcerpt(report, role, nextRoles) {
@@ -202,7 +211,9 @@ async function runReview() {
   show('review'); $('#generateReport').classList.add('hidden'); $('#retryReview')?.classList.add('hidden'); $('#reviewStatus').textContent='三角色评审与交叉讨论正在进行，完整流程可能需要 1～3 分钟，请不要关闭页面。';
   ['#rolePm','#roleUser','#roleCritic'].forEach((id,i)=>{$(id).classList.add('loading');$(id).textContent=['正在检查产品逻辑与 MVP 边界…','正在模拟使用场景与放弃原因…','正在寻找关键假设与失败路径…'][i]});
   const requirement=confirmedRequirement();
-  const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
+  store.confirmedRequirement=requirement;
+  sessionStorage.setItem('icl_confirmed_requirement',requirement);
+  const prompt=`开始评审\n\n【已确认需求材料】\n${requirement}\n\n以上材料是本次评审唯一依据。请运行产品经理、模拟用户、反方评审官的独立评审和交叉讨论，并生成完整压力测试报告。三个角色必须引用材料中的具体用户、痛点、场景和方案，不得输出通用模板，也不得声称没有收到材料。为控制耗时：每个角色只保留 3～5 条关键判断，单个角色不超过 600 字；交叉质疑只保留一致点、冲突点和待验证假设，控制在 800 字以内；最终报告控制在 2500～3500 字。报告必须明确包含“产品经理评审”“模拟用户评审”“反方评审”三个独立标题，以及核心争议、风险、改进建议、MVP 功能建议和最终结论。不要输出内部思考过程。`;
   try {
     store.report=await callDify(prompt,{fresh:true});
     if(!store.report || store.report.trim().length < 100) throw new Error('Dify 已完成运行，但返回的报告内容为空或过短');
@@ -219,8 +230,8 @@ async function runReview() {
 }
 
 function resetAll() {
-  ['icl_conversation','icl_rounds','icl_idea','icl_summary','icl_report'].forEach(key=>sessionStorage.removeItem(key));
-  Object.assign(store,{conversationId:'',rounds:0,initialIdea:'',summary:'',report:''});
+  ['icl_conversation','icl_rounds','icl_idea','icl_summary','icl_confirmed_requirement','icl_report'].forEach(key=>sessionStorage.removeItem(key));
+  Object.assign(store,{conversationId:'',rounds:0,initialIdea:'',summary:'',confirmedRequirement:'',report:''});
   $('#messages').innerHTML=''; $('#productName').value=''; $('#ideaDescription').value=''; $('#rounds').textContent='追问 0 / 3';
   document.querySelectorAll('.fact span').forEach(x=>x.textContent='待确认'); $('#recognisedStatus').textContent='等待开始'; show('entry');
 }
@@ -235,6 +246,6 @@ $('#editGuide').addEventListener('click',()=>show('guide'));
 $('#startReview').addEventListener('click',runReview);
 $('#generateReport').addEventListener('click',()=>{setMarkdown($('#reportText'),store.report);show('report')});
 $('#rerunReview').addEventListener('click',runReview);
-$('#downloadReport').addEventListener('click',async event=>{event.target.disabled=true;event.target.textContent='正在生成 Word…';try{const response=await fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Idea Crash Lab 产品创意压力测试报告',report:store.report,requirement:confirmedRequirement()})});if(!response.ok)throw new Error((await response.json()).error||'生成失败');const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`Idea-Crash-Lab-压力测试报告-${new Date().toISOString().slice(0,10)}.docx`;a.click();URL.revokeObjectURL(url)}catch(error){alert(error.message)}finally{event.target.disabled=false;event.target.textContent='保存 / 打印报告'}});
+$('#downloadReport').addEventListener('click',async event=>{event.target.disabled=true;event.target.textContent='正在生成 Word…';try{const requirement=store.confirmedRequirement||confirmedRequirement();const response=await fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Idea Crash Lab 产品创意压力测试报告',report:store.report,requirement})});if(!response.ok)throw new Error((await response.json()).error||'生成失败');const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`Idea-Crash-Lab-压力测试报告-${new Date().toISOString().slice(0,10)}.docx`;a.click();URL.revokeObjectURL(url)}catch(error){alert(error.message)}finally{event.target.disabled=false;event.target.textContent='保存 / 打印报告'}});
 $('#restartGuide').addEventListener('click',resetAll);$('#resetTop').addEventListener('click',resetAll);$('#fullscreen').addEventListener('click',()=>document.fullscreenElement?document.exitFullscreen():$('#appShell').requestFullscreen());
 if(store.report){setMarkdown($('#reportText'),store.report);show('report')}else if(store.summary){setMarkdown($('#summaryText'),store.summary);populateConfirm(store.summary);show('summary')}
